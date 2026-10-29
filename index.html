@@ -1,0 +1,961 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Simulator răcire Newton</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: două coloane pe desktop (scena cu sferă și grafic, apoi parametrii); o singură coloană pe telefon.
+   Culori: căldură (cupru) pentru corp și curbă, rece (albastru) pentru aer și T∞, neutre reci pentru suprafețe.
+   Tipografie: Plex Sans Condensed pentru titluri și valori, Plex Sans pentru text, Plex Mono pentru date și etichete. */
+:root{
+  --bg:#edf1f4;--surface:#ffffff;--surface-2:#f3f6f8;--fg:#13202b;--muted:#556677;--line:#d2dbe3;
+  --heat:#c2410c;--on-heat:#ffffff;--cool:#1c6dad;
+  --ok:#25803a;--ok-soft:#e0f2e4;--bad:#bf2b2b;--bad-soft:#fae3e3;--warn:#8f5200;--warn-soft:#fbeed0;
+  --focus:#1c6dad;
+  --font-display:'IBM Plex Sans Condensed','Arial Narrow',system-ui,sans-serif;
+  --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d141b;--surface:#151e27;--surface-2:#1b2631;--fg:#e5ecf2;--muted:#93a5b5;--line:#2a3846;
+  --heat:#ff9157;--on-heat:#1b0d04;--cool:#72b7f5;
+  --ok:#62d27d;--ok-soft:#12301b;--bad:#ff7d7d;--bad-soft:#3a1919;--warn:#f0b64e;--warn-soft:#35290f;
+  --focus:#72b7f5;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d141b;--surface:#151e27;--surface-2:#1b2631;--fg:#e5ecf2;--muted:#93a5b5;--line:#2a3846;
+  --heat:#ff9157;--on-heat:#1b0d04;--cool:#72b7f5;
+  --ok:#62d27d;--ok-soft:#12301b;--bad:#ff7d7d;--bad-soft:#3a1919;--warn:#f0b64e;--warn-soft:#35290f;
+  --focus:#72b7f5;color-scheme:dark}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--font-body);
+  padding-block:0 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1200px;margin:0 auto}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+.num,.tile .val,.dv,output,.mono{font-variant-numeric:tabular-nums}
+
+/* antet */
+.top{padding-top:28px;display:flex;flex-direction:column;gap:10px}
+.eyebrow{font:500 12px/1 var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 clamp(30px,5vw,46px)/1.05 var(--font-display);letter-spacing:-.01em;text-wrap:balance}
+.lede{color:var(--muted);max-width:62ch}
+.thermo{height:4px;border-radius:2px;background:linear-gradient(90deg,var(--cool),var(--heat));margin-top:6px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:10px}
+.tab{appearance:none;background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;
+  padding:10px 14px;font:600 15px/1.2 var(--font-body);color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--heat)}
+.tab:hover{color:var(--fg)}
+
+/* structură */
+main{padding-top:18px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card-t{font:500 12px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.note{font-size:13px;color:var(--muted)}
+.note.warn{color:var(--warn);background:var(--warn-soft);padding:8px 10px;border-radius:6px}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+
+/* scena */
+.stage-top{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.sphere-fig{margin:0;width:176px;flex:none}
+.sphere-fig svg{display:block;width:176px;height:176px;max-width:100%}
+.sphere-fig figcaption{font:400 12px/1.4 var(--font-mono);color:var(--muted);text-align:center}
+.readouts{flex:1 1 260px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.tile{background:var(--surface-2);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.tile .lab{font:500 11px/1.2 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.tile .val{font:600 28px/1.1 var(--font-display)}
+.tile .unit{font:400 12px/1.2 var(--font-mono);color:var(--muted)}
+.tile.hot .val{color:var(--heat)}
+
+.view-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 6px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;max-width:100%}
+.seg button{appearance:none;border:0;background:var(--surface);color:var(--muted);padding:8px 12px;
+  font:500 13px/1.2 var(--font-body);cursor:pointer;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--surface-2);color:var(--fg);box-shadow:inset 0 -2px 0 var(--heat)}
+.chart{width:100%;touch-action:pan-y;cursor:ew-resize;user-select:none;-webkit-user-select:none}
+.chart svg{display:block}
+.grid-l{stroke:var(--line);stroke-width:1}
+.axis{stroke:var(--muted);stroke-width:1}
+.tick{fill:var(--muted);font:400 11px var(--font-mono)}
+.atitle{fill:var(--muted);font:500 12px var(--font-mono)}
+.curve{stroke:var(--heat);stroke-width:2.5;fill:none;stroke-linejoin:round}
+.dpt{fill:var(--surface);stroke:var(--fg);stroke-width:1.6}
+.asym{stroke:var(--cool);stroke-width:1.5;stroke-dasharray:6 4}
+.asym-t{fill:var(--cool);font:500 12px var(--font-mono)}
+.cursor{stroke:var(--fg);stroke-width:1;stroke-dasharray:2 3;opacity:.65}
+.cdot{fill:var(--heat);stroke:var(--surface);stroke-width:2}
+.band{fill:var(--cool);opacity:.1}
+.band-t{fill:var(--cool);font:500 11px var(--font-mono)}
+.tau-m{fill:var(--surface);stroke:var(--heat);stroke-width:2}
+.tau-t{fill:var(--fg);font:500 12px var(--font-mono)}
+.note-t{fill:var(--fg);font:500 12px var(--font-mono)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font:400 12px/1.2 var(--font-mono);color:var(--muted);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw-line{width:18px;height:0;border-top:3px solid var(--heat)}
+.sw-dash{width:18px;height:0;border-top:2px dashed var(--cool)}
+.sw-dot{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--fg);background:var(--surface)}
+.sw-tau{width:10px;height:10px;border-radius:50%;border:2px solid var(--heat);background:var(--surface)}
+.sw-band{width:14px;height:10px;background:var(--cool);opacity:.18}
+
+/* comenzi */
+.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 24px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.ctl{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ctl-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.ctl label,.lbl{font:600 13px/1.2 var(--font-body)}
+output{font:500 14px/1 var(--font-mono);color:var(--heat)}
+input[type=range]{width:100%;height:28px;margin:0;accent-color:var(--heat)}
+.t-row{display:flex;gap:10px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;
+  padding:5px 9px;font:500 12px/1.2 var(--font-mono);cursor:pointer}
+.chip:hover{background:var(--surface-2)}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:8px;
+  padding:9px 13px;font:600 14px/1.2 var(--font-body);cursor:pointer}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--heat);border-color:var(--heat);color:var(--on-heat)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.icon{width:40px;height:40px;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.btn:disabled{opacity:.5;cursor:default}
+.numfield{display:inline-flex;align-items:baseline;gap:6px}
+.numfield input{width:74px;font:500 14px var(--font-mono);color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:4px 6px;text-align:right}
+.u{font:400 12px var(--font-mono);color:var(--muted)}
+select{font:500 14px var(--font-body);color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+input[type=text]{font:500 15px var(--font-mono);color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:140px;min-width:0}
+
+/* potrivire și comparații */
+.fit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.mini-l{font:500 11px/1.2 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.big{font:600 26px/1.1 var(--font-display)}
+.pill{display:inline-block;font:500 12px/1.2 var(--font-mono);padding:4px 8px;border-radius:999px;margin-top:6px}
+.pill.ok{color:var(--ok);background:var(--ok-soft)}
+.pill.near{color:var(--warn);background:var(--warn-soft)}
+.pill.bad{color:var(--bad);background:var(--bad-soft)}
+.checks{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:14px;font-size:14px}
+.checks label{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.checks input{accent-color:var(--heat);width:16px;height:16px}
+.sep{border:0;border-top:1px solid var(--line);margin:16px 0}
+.drops{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.drop{background:var(--surface-2);border-radius:8px;padding:10px 12px}
+.drop .big{font-size:24px}
+.drop .sub{font:400 12px/1.4 var(--font-mono);color:var(--muted)}
+
+/* mărimi calculate */
+.dr{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)}
+.dr:last-of-type{border-bottom:0}
+.dn{font:600 15px var(--font-display)}
+.df{font:400 12px var(--font-mono);color:var(--muted);margin-left:8px}
+.dv{font:500 14px var(--font-mono);text-align:right}
+.dv small{color:var(--muted);font-size:12px}
+.explore{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+
+/* verificare */
+.v-intro{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between}
+.v-intro p{max-width:60ch}
+.prog{min-width:220px;flex:0 1 260px}
+.prog .bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;margin-top:8px}
+.prog .fill{height:100%;width:0;background:var(--ok);transition:width .25s}
+.v-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px;align-items:start}
+.vg-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.vg-n{font:500 12px/1 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--heat);flex:none}
+.vg-t{font:600 18px/1.2 var(--font-display)}
+.vg-d{font-size:13px;color:var(--muted);margin-bottom:8px}
+.vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.vname{font-weight:500}
+.vin{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.vin select{width:auto;max-width:100%}
+.vrow.sel{grid-template-columns:minmax(0,1fr)}
+.vrow.sel select{width:100%}
+.vrow.is-ok input,.vrow.is-ok select{border-color:var(--ok)}
+.vrow.is-near input,.vrow.is-near select{border-color:var(--warn)}
+.vrow.is-bad input,.vrow.is-bad select{border-color:var(--bad)}
+.vact{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;min-height:0}
+.vact .pill{margin-top:0}
+.vmsg{font-size:13px;color:var(--muted)}
+.vsol{grid-column:1/-1;background:var(--surface-2);border-radius:8px;padding:10px 12px;font:400 13px/1.6 var(--font-mono);overflow-x:auto}
+.link{appearance:none;background:none;border:0;padding:0;color:var(--cool);font:500 13px var(--font-body);text-decoration:underline;cursor:pointer}
+.v-bar{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+
+@media (max-width:920px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .v-groups{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  .controls{grid-template-columns:minmax(0,1fr)}
+  .fit-grid{grid-template-columns:minmax(0,1fr)}
+  .sphere-fig{margin:0 auto}
+  .tile .val{font-size:24px}
+  .vrow{grid-template-columns:minmax(0,1fr)}
+  .vin{justify-content:flex-start}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Lucrarea 2 · Transfer termic</p>
+    <h1>Răcirea sferei de aluminiu</h1>
+    <p class="lede">Modifică parametrii, urmărește curba de răcire și compară modelul cu datele din fișa de lucru. În a doua secțiune îți verifici calculele sarcină cu sarcină.</p>
+    <div class="thermo" aria-hidden="true"></div>
+    <nav class="tabs" role="tablist" aria-label="Secțiuni">
+      <button class="tab" role="tab" id="tab-simulator" aria-controls="panel-simulator" aria-selected="true" type="button">Simulator</button>
+      <button class="tab" role="tab" id="tab-verificare" aria-controls="panel-verificare" aria-selected="false" type="button">Verifică fișa</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ SIMULATOR ============ -->
+    <section id="panel-simulator" role="tabpanel" aria-labelledby="tab-simulator">
+      <div class="grid">
+        <div class="col">
+          <div class="card">
+            <h2 class="card-t">Răcirea în aer</h2>
+            <div class="stage-top">
+              <figure class="sphere-fig">
+                <svg id="sphere" viewBox="0 0 180 180" role="img" aria-label="Sfera și fluxul de căldură către aer"></svg>
+                <figcaption id="sphere-cap"></figcaption>
+              </figure>
+              <div class="readouts">
+                <div class="tile hot"><span class="lab">Temperatura Ts</span><span class="val" id="r-ts">–</span><span class="unit">°C</span></div>
+                <div class="tile"><span class="lab">Diferența θ = Ts − T∞</span><span class="val" id="r-th">–</span><span class="unit">K</span></div>
+                <div class="tile"><span class="lab">Flux de căldură Q̇</span><span class="val" id="r-q">–</span><span class="unit">W</span></div>
+                <div class="tile"><span class="lab">Viteza de răcire −dTs/dt</span><span class="val" id="r-rate">–</span><span class="unit">K/s</span></div>
+              </div>
+            </div>
+
+            <div class="view-bar">
+              <div class="seg" role="group" aria-label="Tipul graficului" id="view-seg">
+                <button type="button" data-view="T" aria-pressed="true">Ts(t)</button>
+                <button type="button" data-view="LN" aria-pressed="false">ln θ(t)</button>
+                <button type="button" data-view="RATE" aria-pressed="false">Viteza de răcire</button>
+              </div>
+              <span class="note" id="view-note"></span>
+            </div>
+            <div id="chart" class="chart"></div>
+            <div class="legend" id="legend"></div>
+
+            <div class="controls">
+              <div class="ctl">
+                <div class="ctl-head"><label for="t-range">Timp t</label><output id="t-val" for="t-range">300 s</output></div>
+                <div class="t-row">
+                  <button id="play" class="btn icon primary" type="button" aria-label="Pornește animația"></button>
+                  <input id="t-range" type="range" min="0" max="600" step="1" value="300">
+                </div>
+                <div class="chips" id="t-chips" aria-label="Momente din fișă">
+                  <button class="chip" type="button" data-t="0">0 s</button>
+                  <button class="chip" type="button" data-t="60">60 s</button>
+                  <button class="chip" type="button" data-t="300">300 s</button>
+                  <button class="chip" type="button" data-t="540">540 s</button>
+                  <button class="chip" type="button" data-t="600">600 s</button>
+                </div>
+                <p class="hint">Poți trage cu degetul sau cu mouse-ul direct pe grafic.</p>
+              </div>
+              <div class="ctl">
+                <div class="ctl-head">
+                  <label for="h-range">Coeficient h</label>
+                  <span class="numfield"><input id="h-num" type="number" min="1" max="200" step="0.5" inputmode="decimal" aria-label="Valoarea lui h"><span class="u">W/(m²·K)</span></span>
+                </div>
+                <input id="h-range" type="range" min="1" max="200" step="0.5" value="66">
+                <div class="chips" id="h-chips" aria-label="Valori uzuale pentru h">
+                  <button class="chip" type="button" data-h="10">Aer calm · 10</button>
+                  <button class="chip" type="button" data-h="66">Fișa · 66</button>
+                  <button class="chip" type="button" data-h="150">Ventilator · 150</button>
+                </div>
+                <p class="hint" id="h-hint"></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 class="card-t">Model față de datele din fișă</h2>
+            <div class="fit-grid">
+              <div>
+                <p class="mini-l">Abatere RMS</p>
+                <p class="big"><span id="rms">–</span> <span class="u">K</span></p>
+                <span class="pill" id="rms-v"></span>
+              </div>
+              <div>
+                <p class="mini-l">Ajustare exponențială pe date</p>
+                <p class="mono" id="fit-out" style="font:500 14px/1.6 var(--font-mono)">–</p>
+                <button class="btn" id="fit-use" type="button" style="margin-top:8px">Folosește h ajustat</button>
+              </div>
+            </div>
+            <p class="note warn" id="mismatch" hidden style="margin-top:14px">Parametrii diferă de cei din fișă (sferă de aluminiu, d = 50 mm, Ts,0 = 90 °C, T∞ = 25 °C). Punctele din fișă nu mai trebuie să coincidă cu curba.</p>
+            <div class="checks">
+              <label><input type="checkbox" id="showData" checked> Puncte din fișă</label>
+              <label><input type="checkbox" id="showBands" checked> Evidențiază 0–60 s și 540–600 s</label>
+            </div>
+            <hr class="sep">
+            <p class="mini-l">Scăderea temperaturii în 60 s</p>
+            <div class="drops">
+              <div class="drop"><p class="mini-l">0 → 60 s</p><p class="big"><span id="drop1">–</span> <span class="u">K</span></p><p class="sub" id="drop1-d"></p></div>
+              <div class="drop"><p class="mini-l">540 → 600 s</p><p class="big"><span id="drop2">–</span> <span class="u">K</span></p><p class="sub" id="drop2-d"></p></div>
+            </div>
+            <p class="hint" id="drop-ratio"></p>
+          </div>
+        </div>
+
+        <aside class="col">
+          <div class="card">
+            <h2 class="card-t">Parametri</h2>
+            <div class="ctl" style="margin-bottom:14px">
+              <label for="mat">Material</label>
+              <select id="mat">
+                <option value="Al">Aluminiu · ρ = 2700, c = 900</option>
+                <option value="Cu">Cupru · ρ = 8960, c = 385</option>
+                <option value="Fe">Oțel · ρ = 7850, c = 490</option>
+              </select>
+            </div>
+            <div class="ctl" style="margin-bottom:14px">
+              <div class="ctl-head"><label for="d-range">Diametrul d</label><output id="d-val" for="d-range">50 mm</output></div>
+              <input id="d-range" type="range" min="20" max="200" step="1" value="50">
+            </div>
+            <div class="ctl" style="margin-bottom:14px">
+              <div class="ctl-head"><label for="T0-range">Temperatura inițială Ts,0</label><output id="T0-val" for="T0-range">90 °C</output></div>
+              <input id="T0-range" type="range" min="60" max="120" step="1" value="90">
+            </div>
+            <div class="ctl" style="margin-bottom:14px">
+              <div class="ctl-head"><label for="Tinf-range">Temperatura aerului T∞</label><output id="Tinf-val" for="Tinf-range">25 °C</output></div>
+              <input id="Tinf-range" type="range" min="10" max="40" step="1" value="25">
+            </div>
+            <div class="ctl" style="margin-bottom:16px">
+              <span class="lbl">Intervalul afișat</span>
+              <div class="seg" role="group" aria-label="Intervalul afișat" id="tmax-seg">
+                <button type="button" data-tmax="600" aria-pressed="true">10 min</button>
+                <button type="button" data-tmax="1200" aria-pressed="false">20 min</button>
+                <button type="button" data-tmax="3600" aria-pressed="false">1 oră</button>
+              </div>
+            </div>
+            <button class="btn" id="reset" type="button">Revino la valorile din fișă</button>
+          </div>
+
+          <div class="card">
+            <h2 class="card-t">Mărimi calculate</h2>
+            <div id="derived"></div>
+          </div>
+
+          <div class="card">
+            <h2 class="card-t">De explorat</h2>
+            <ol class="explore">
+              <li>Fixează t = 300 s și variază h. Cum se schimbă Ts?</li>
+              <li>Compară cuprul cu aluminiul la același d și același h. Ce se schimbă la k? De ce?</li>
+              <li>Pe graficul ln θ(t), schimbă T∞ cu ±3 °C. Mai cad punctele din fișă pe o dreaptă?</li>
+              <li>Compară k pentru d = 30 mm și d = 100 mm, la același h. Cum depinde k de diametru?</li>
+            </ol>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============ VERIFICARE ============ -->
+    <section id="panel-verificare" role="tabpanel" aria-labelledby="tab-verificare" hidden>
+      <div class="card">
+        <div class="v-intro">
+          <div>
+            <h2 class="card-t">Cazul din fișă</h2>
+            <p>Sferă de aluminiu, d = 50 mm, ρ = 2700 kg/m³, c = 900 J/(kg·K), Ts,0 = 90 °C, T∞ = 25 °C. Calculează pe foaie, scrie rezultatul și apasă Enter. Zecimalele se pot scrie cu virgulă sau cu punct, iar puterile lui 10 ca 3,3e-3 sau 3,3·10^-3.</p>
+          </div>
+          <div class="prog" aria-live="polite">
+            <p class="mini-l">Răspunsuri corecte</p>
+            <p class="big"><span id="prog-n">0</span> <span class="u">din <span id="prog-t">13</span></span></p>
+            <div class="bar"><div class="fill" id="prog-fill"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="v-groups" id="v-groups"></div>
+      <div class="v-bar">
+        <button class="btn primary" id="v-all" type="button">Verifică tot</button>
+        <button class="btn" id="v-clear" type="button">Șterge răspunsurile</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function(){
+'use strict';
+var PI=Math.PI;
+var $=function(s,r){return (r||document).querySelector(s);};
+var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+var clamp=function(x,a,b){return Math.min(b,Math.max(a,x));};
+
+/* ---------- date din fișă ---------- */
+var DATA_Y=[90,83.7,78.1,73.1,68.6,64.5,60.9,57.6,54.6,51.9,49.4,47.1,45.1,43.2,41.5,40.0,38.6,37.3,36.2,35.1,34.2];
+var DATA_T=DATA_Y.map(function(_,i){return i*30;});
+var MATS={
+  Al:{name:'aluminiu',rho:2700,c:900,lam:237},
+  Cu:{name:'cupru',rho:8960,c:385,lam:401},
+  Fe:{name:'oțel',rho:7850,c:490,lam:50}
+};
+
+/* ---------- formatare ---------- */
+var SUP={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+var SUPINV={'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','⁻':'-'};
+function fmt(x,d){
+  if(d===undefined)d=1;
+  if(!isFinite(x))return '–';
+  var s=x.toFixed(d);
+  if(parseFloat(s)===0)s=(0).toFixed(d);
+  return s.replace('.',',').replace('-','−');
+}
+function sci(x,d){
+  if(d===undefined)d=2;
+  if(x===0||!isFinite(x))return '0';
+  var neg=x<0;x=Math.abs(x);
+  var e=Math.floor(Math.log10(x));
+  var m=x/Math.pow(10,e);
+  var ms=m.toFixed(d);
+  if(parseFloat(ms)>=10){m/=10;e+=1;ms=m.toFixed(d);}
+  var es=String(e).split('').map(function(ch){return SUP[ch]||ch;}).join('');
+  return (neg?'−':'')+ms.replace('.',',')+'·10'+es;
+}
+
+/* ---------- starea simulatorului ---------- */
+function defaults(){
+  return {mat:'Al',d:50,T0:90,Tinf:25,h:66,tmax:600,t:300,showData:true,showBands:true,view:'T',playing:false};
+}
+var S=defaults();
+
+function P(){
+  var M=MATS[S.mat];
+  var r=S.d/2000;
+  var A=4*PI*r*r;
+  var V=4/3*PI*r*r*r;
+  var m=M.rho*V;
+  var k=S.h*A/(m*M.c);
+  return {M:M,r:r,A:A,V:V,m:m,k:k,mcA:m*M.c/A};
+}
+function Tof(p,t){return S.Tinf+(S.T0-S.Tinf)*Math.exp(-p.k*t);}
+
+function fitK(){
+  var n=0,sx=0,sy=0,sxx=0,sxy=0;
+  for(var i=0;i<DATA_T.length;i++){
+    var th=DATA_Y[i]-S.Tinf;
+    if(th<=0)continue;
+    var y=Math.log(th),x=DATA_T[i];
+    n++;sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;
+  }
+  if(n<2)return null;
+  var den=n*sxx-sx*sx;
+  if(den===0)return null;
+  return -((n*sxy-sx*sy)/den);
+}
+function rms(p){
+  var s=0;
+  for(var i=0;i<DATA_T.length;i++){var d=Tof(p,DATA_T[i])-DATA_Y[i];s+=d*d;}
+  return Math.sqrt(s/DATA_T.length);
+}
+
+/* ---------- axe ---------- */
+function niceStep(range,target){
+  var raw=range/Math.max(1,target);
+  var p=Math.pow(10,Math.floor(Math.log10(raw)));
+  var f=raw/p;
+  var n=f<1.5?1:f<3.5?2:f<7.5?5:10;
+  return n*p;
+}
+function ticks(min,max,target){
+  var st=niceStep(max-min,target);
+  var out=[];
+  for(var v=Math.ceil(min/st-1e-9)*st;v<=max+1e-9;v+=st)out.push(+v.toFixed(10));
+  return {out:out,st:st};
+}
+
+/* ---------- grafic ---------- */
+var geom={ml:50,iw:400};
+var BANDS=[[0,60],[540,600]];
+var VIEW_NOTES={
+  T:'Curba exponențială tinde spre T∞.',
+  LN:'Panta dreptei este −k.',
+  RATE:'Viteza de răcire este proporțională cu θ.'
+};
+function drawChart(){
+  var host=$('#chart');
+  var W=Math.max(260,Math.floor(host.clientWidth||600));
+  var H=W<520?280:340;
+  var M={l:W<420?48:58,r:16,t:14,b:46};
+  var iw=W-M.l-M.r,ih=H-M.t-M.b;
+  geom={ml:M.l,iw:iw};
+  var p=P(),th0=S.T0-S.Tinf;
+  var f,ymin,ymax,yTitle,data=[],dec;
+  if(S.view==='T'){
+    f=function(t){return Tof(p,t);};
+    ymin=Math.floor((S.Tinf-4)/5)*5;
+    ymax=Math.ceil((S.T0+3)/10)*10;
+    yTitle='Ts [°C]';
+    data=DATA_T.map(function(t,i){return [t,DATA_Y[i]];});
+  }else if(S.view==='LN'){
+    f=function(t){return Math.log(th0)-p.k*t;};
+    ymax=Math.ceil(Math.log(th0)*2+0.2)/2;
+    ymin=Math.floor(f(S.tmax)*2-0.2)/2;
+    yTitle='ln θ  (θ în K)';
+    DATA_T.forEach(function(t,i){var th=DATA_Y[i]-S.Tinf;if(th>0)data.push([t,Math.log(th)]);});
+  }else{
+    f=function(t){return p.k*th0*Math.exp(-p.k*t);};
+    ymin=0;
+    ymax=p.k*th0*1.1;
+    yTitle='−dTs/dt [K/s]';
+    for(var i=0;i<DATA_T.length-1;i++)data.push([DATA_T[i]+15,(DATA_Y[i]-DATA_Y[i+1])/30]);
+  }
+  var X=function(t){return M.l+t/S.tmax*iw;};
+  var Y=function(v){return M.t+(1-(v-ymin)/(ymax-ymin))*ih;};
+  var yt=ticks(ymin,ymax,ih/44);
+  dec=yt.st>=1?0:Math.max(0,Math.ceil(-Math.log10(yt.st)-1e-9));
+  var xt=ticks(0,S.tmax,iw/78);
+  var g='<defs><clipPath id="cp"><rect x="'+M.l+'" y="'+M.t+'" width="'+iw+'" height="'+ih+'"/></clipPath></defs>';
+  yt.out.forEach(function(v){
+    var y=Y(v);
+    g+='<line class="grid-l" x1="'+M.l+'" x2="'+(M.l+iw)+'" y1="'+y+'" y2="'+y+'"/>';
+    g+='<text class="tick" x="'+(M.l-8)+'" y="'+(y+4)+'" text-anchor="end">'+fmt(v,dec)+'</text>';
+  });
+  xt.out.forEach(function(v){
+    var x=X(v);
+    g+='<line class="grid-l" x1="'+x+'" x2="'+x+'" y1="'+M.t+'" y2="'+(M.t+ih)+'"/>';
+    g+='<text class="tick" x="'+x+'" y="'+(M.t+ih+18)+'" text-anchor="middle">'+v+'</text>';
+  });
+  g+='<line class="axis" x1="'+M.l+'" x2="'+M.l+'" y1="'+M.t+'" y2="'+(M.t+ih)+'"/>';
+  g+='<line class="axis" x1="'+M.l+'" x2="'+(M.l+iw)+'" y1="'+(M.t+ih)+'" y2="'+(M.t+ih)+'"/>';
+  g+='<text class="atitle" x="'+(M.l+iw/2)+'" y="'+(H-6)+'" text-anchor="middle">t [s]</text>';
+  g+='<text class="atitle" transform="translate(13 '+(M.t+ih/2)+') rotate(-90)" text-anchor="middle">'+yTitle+'</text>';
+
+  if(S.showBands){
+    BANDS.forEach(function(b){
+      if(b[0]>=S.tmax)return;
+      var x1=X(b[0]),x2=X(Math.min(b[1],S.tmax));
+      g+='<rect class="band" x="'+x1+'" y="'+M.t+'" width="'+(x2-x1)+'" height="'+ih+'"/>';
+    });
+  }
+  g+='<g clip-path="url(#cp)">';
+  if(S.view==='T'){
+    var ya=Y(S.Tinf);
+    g+='<line class="asym" x1="'+M.l+'" x2="'+(M.l+iw)+'" y1="'+ya+'" y2="'+ya+'"/>';
+    g+='<text class="asym-t" x="'+(M.l+iw-6)+'" y="'+(ya-7)+'" text-anchor="end">T∞ = '+S.Tinf+' °C</text>';
+  }
+  var N=220,d='';
+  for(var i=0;i<=N;i++){
+    var t=S.tmax*i/N;
+    d+=(i?'L':'M')+X(t).toFixed(1)+' '+Y(f(t)).toFixed(1);
+  }
+  g+='<path class="curve" d="'+d+'"/>';
+  if(S.showData){
+    data.forEach(function(q){g+='<circle class="dpt" cx="'+X(q[0]).toFixed(1)+'" cy="'+Y(q[1]).toFixed(1)+'" r="3.4"/>';});
+  }
+  g+='</g>';
+  var cx=X(S.t);
+  g+='<line class="cursor" x1="'+cx+'" x2="'+cx+'" y1="'+M.t+'" y2="'+(M.t+ih)+'"/>';
+  g+='<circle class="cdot" cx="'+cx+'" cy="'+Y(f(S.t))+'" r="5.5"/>';
+  if(S.view==='LN'){
+    g+='<text class="note-t" x="'+(M.l+iw-8)+'" y="'+(M.t+16)+'" text-anchor="end">panta = −k = −'+sci(p.k,2)+' s⁻¹</text>';
+  }
+  host.innerHTML='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Grafic: '+yTitle+' în funcție de timp">'+g+'</svg>';
+}
+function drawLegend(){
+  var h='<span><i class="sw-line"></i>model</span>';
+  if(S.showData)h+='<span><i class="sw-dot"></i>'+(S.view==='RATE'?'date din fișă (ΔT/Δt pe 30 s)':'date din fișă')+'</span>';
+  if(S.view==='T')h+='<span><i class="sw-dash"></i>T∞</span>';
+  if(S.showBands)h+='<span><i class="sw-band"></i>primele / ultimele 60 s</span>';
+  $('#legend').innerHTML=h;
+}
+
+/* ---------- sfera ---------- */
+var COLD=[143,179,209],HOT=[232,89,12];
+function mix(a,b,t){return 'rgb('+a.map(function(v,i){return Math.round(v+(b[i]-v)*t);}).join(',')+')';}
+function drawSphere(){
+  var p=P();
+  var th0=S.T0-S.Tinf;
+  var th=Tof(p,S.t)-S.Tinf;
+  var frac=clamp(th/th0,0,1);
+  var R=20+(S.d-20)/180*38;
+  var Q=S.h*p.A*th;
+  var qn=Math.sqrt(clamp(Q/200,0,1));
+  var Lmax=Math.min(24,84-R);
+  var L=4+(Lmax-4)*qn;
+  var op=(0.3+0.7*qn).toFixed(2);
+  var g='<defs><radialGradient id="shine" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#fff" stop-opacity="0.45"/><stop offset="1" stop-color="#000" stop-opacity="0.2"/></radialGradient></defs>';
+  for(var i=0;i<8;i++){
+    var y0=90-R-6,y1=y0-L;
+    g+='<g transform="rotate('+(i*45)+' 90 90)" opacity="'+op+'"><line x1="90" y1="'+y0+'" x2="90" y2="'+(y1+5)+'" stroke="var(--heat)" stroke-width="2.4" stroke-linecap="round"/><polygon points="90,'+y1+' 86,'+(y1+7)+' 94,'+(y1+7)+'" fill="var(--heat)"/></g>';
+  }
+  g+='<circle cx="90" cy="90" r="'+R+'" fill="'+mix(COLD,HOT,frac)+'"/>';
+  g+='<circle cx="90" cy="90" r="'+R+'" fill="url(#shine)"/>';
+  g+='<circle cx="90" cy="90" r="'+R+'" fill="none" stroke="var(--fg)" stroke-opacity="0.35" stroke-width="1"/>';
+  g+='<circle cx="90" cy="90" r="3.2" fill="var(--fg)"/>';
+  $('#sphere').innerHTML=g;
+  $('#sphere-cap').textContent='Sferă de '+p.M.name+', d = '+S.d+' mm · senzor în centru';
+}
+
+/* ---------- afișaje ---------- */
+function updateReadouts(){
+  var p=P();
+  var T=Tof(p,S.t),th=T-S.Tinf,Q=S.h*p.A*th,rate=p.k*th;
+  $('#r-ts').textContent=fmt(T,1);
+  $('#r-th').textContent=fmt(th,1);
+  $('#r-q').textContent=fmt(Q,2);
+  $('#r-rate').textContent=fmt(rate,rate<0.01?4:3);
+}
+function updateDerived(){
+  var p=P();
+  var rows=[
+    ['r','d/2',fmt(p.r*1000,1),'mm'],
+    ['A','4πr²',sci(p.A,3),'m²'],
+    ['V','(4/3)πr³',sci(p.V,3),'m³'],
+    ['m','ρ·V',fmt(p.m,4),'kg'],
+    ['k','h·A/(m·c)',sci(p.k,3),'s⁻¹']
+  ];
+  $('#derived').innerHTML=rows.map(function(r){
+    return '<div class="dr"><div><span class="dn">'+r[0]+'</span><span class="df">'+r[1]+'</span></div><div class="dv">'+r[2]+(r[3]?' <small>'+r[3]+'</small>':'')+'</div></div>';
+  }).join('');
+}
+function updateFit(){
+  var p=P();
+  var e=rms(p);
+  $('#rms').textContent=fmt(e,2);
+  var v=$('#rms-v');
+  if(e<0.5){v.className='pill ok';v.textContent='Potrivire foarte bună';}
+  else if(e<2){v.className='pill near';v.textContent='Potrivire acceptabilă';}
+  else{v.className='pill bad';v.textContent='Abatere mare';}
+  var kf=fitK();
+  var btn=$('#fit-use');
+  if(kf&&kf>0){
+    var hf=kf*p.mcA;
+    $('#fit-out').innerHTML='k = '+sci(kf,2)+' s⁻¹<br>h = '+fmt(hf,1)+' W/(m²·K)';
+    btn.disabled=false;btn.textContent='Folosește h = '+fmt(clamp(hf,1,200),1);
+    btn.dataset.h=String(clamp(hf,1,200));
+  }else{
+    $('#fit-out').textContent='–';btn.disabled=true;btn.textContent='Folosește h ajustat';
+  }
+  var diff=S.mat!=='Al'||S.d!==50||S.T0!==90||S.Tinf!==25;
+  $('#mismatch').hidden=!diff;
+  var d1=Tof(p,0)-Tof(p,60),d2=Tof(p,540)-Tof(p,600);
+  $('#drop1').textContent=fmt(d1,1);
+  $('#drop2').textContent=fmt(d2,1);
+  $('#drop1-d').textContent='fișă: '+fmt(DATA_Y[0]-DATA_Y[2],1)+' K';
+  $('#drop2-d').textContent='fișă: '+fmt(DATA_Y[18]-DATA_Y[20],1)+' K';
+  $('#drop-ratio').textContent=d2>0.0005?'În model, prima scădere este de '+fmt(d1/d2,1)+' ori mai mare decât ultima.':'';
+}
+function updateHint(){
+  $('#h-hint').textContent='Constanta de răcire: k = '+sci(P().k,3)+' s⁻¹. '+(S.h<25
+    ?'Domeniu tipic pentru convecția naturală în aer: aproximativ 2–25 W/(m²·K).'
+    :'Domeniu tipic pentru convecția forțată în aer: aproximativ 25–250 W/(m²·K).');
+}
+function syncTime(){
+  $('#t-range').max=S.tmax;
+  $('#t-range').value=S.t;
+  $('#t-val').textContent=Math.round(S.t)+' s';
+}
+function syncControls(){
+  $('#mat').value=S.mat;
+  $('#d-range').value=S.d;$('#d-val').textContent=S.d+' mm';
+  $('#T0-range').value=S.T0;$('#T0-val').textContent=S.T0+' °C';
+  $('#Tinf-range').value=S.Tinf;$('#Tinf-val').textContent=S.Tinf+' °C';
+  $('#h-range').value=S.h;
+  if(document.activeElement!==$('#h-num'))$('#h-num').value=S.h;
+  $('#showData').checked=S.showData;
+  $('#showBands').checked=S.showBands;
+  $$('#view-seg button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.view===S.view));});
+  $$('#tmax-seg button').forEach(function(b){b.setAttribute('aria-pressed',String(+b.dataset.tmax===S.tmax));});
+  $('#view-note').textContent=VIEW_NOTES[S.view];
+  syncTime();
+  updatePlayBtn();
+}
+var ICON_PLAY='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>';
+var ICON_PAUSE='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3.2" height="11" fill="currentColor"/><rect x="9.3" y="2.5" width="3.2" height="11" fill="currentColor"/></svg>';
+function updatePlayBtn(){
+  var b=$('#play');
+  b.innerHTML=S.playing?ICON_PAUSE:ICON_PLAY;
+  b.setAttribute('aria-label',S.playing?'Oprește animația':'Pornește animația');
+}
+function renderLive(){drawChart();drawSphere();updateReadouts();}
+function renderAll(){
+  syncControls();
+  drawLegend();
+  drawChart();drawSphere();updateReadouts();updateDerived();updateFit();updateHint();
+}
+
+/* ---------- animație ---------- */
+var raf=0,last=0;
+function tick(ts){
+  if(!S.playing)return;
+  var dt=Math.min(0.1,(ts-last)/1000);last=ts;
+  S.t=Math.min(S.tmax,S.t+dt*S.tmax/12);
+  if(S.t>=S.tmax)S.playing=false;
+  renderLive();syncTime();updatePlayBtn();
+  if(S.playing)raf=requestAnimationFrame(tick);
+}
+function play(){
+  if(S.playing){S.playing=false;updatePlayBtn();return;}
+  if(S.t>=S.tmax)S.t=0;
+  S.playing=true;last=performance.now();
+  updatePlayBtn();
+  raf=requestAnimationFrame(tick);
+}
+
+/* ---------- evenimente simulator ---------- */
+$('#play').addEventListener('click',play);
+$('#t-range').addEventListener('input',function(e){S.playing=false;S.t=+e.target.value;renderLive();syncTime();updatePlayBtn();});
+$('#t-chips').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-t]');if(!b)return;
+  S.playing=false;S.t=Math.min(+b.dataset.t,S.tmax);renderLive();syncTime();updatePlayBtn();
+});
+$('#h-range').addEventListener('input',function(e){S.h=+e.target.value;renderAll();});
+$('#h-num').addEventListener('input',function(e){
+  var v=parseFloat(String(e.target.value).replace(',','.'));
+  if(isFinite(v)&&v>=1&&v<=200){S.h=v;var a=document.activeElement;renderAll();if(a===$('#h-num'))$('#h-num').value=e.target.value;}
+});
+$('#h-num').addEventListener('blur',function(){$('#h-num').value=S.h;});
+$('#h-chips').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-h]');if(!b)return;
+  S.h=+b.dataset.h;renderAll();
+});
+$('#mat').addEventListener('change',function(e){S.mat=e.target.value;renderAll();});
+$('#d-range').addEventListener('input',function(e){S.d=+e.target.value;renderAll();});
+$('#T0-range').addEventListener('input',function(e){S.T0=+e.target.value;renderAll();});
+$('#Tinf-range').addEventListener('input',function(e){S.Tinf=+e.target.value;renderAll();});
+$('#tmax-seg').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-tmax]');if(!b)return;
+  S.tmax=+b.dataset.tmax;S.t=Math.min(S.t,S.tmax);renderAll();
+});
+$('#view-seg').addEventListener('click',function(e){
+  var b=e.target.closest('button[data-view]');if(!b)return;
+  S.view=b.dataset.view;renderAll();
+});
+$('#showData').addEventListener('change',function(e){S.showData=e.target.checked;renderAll();});
+$('#showBands').addEventListener('change',function(e){S.showBands=e.target.checked;renderAll();});
+$('#fit-use').addEventListener('click',function(e){
+  var v=parseFloat(e.currentTarget.dataset.h);
+  if(isFinite(v)){S.h=Math.round(v*10)/10;renderAll();}
+});
+$('#reset').addEventListener('click',function(){S=defaults();renderAll();});
+
+/* tragere pe grafic */
+(function(){
+  var host=$('#chart'),dragging=false;
+  function setT(e){
+    var r=host.getBoundingClientRect();
+    var x=e.clientX-r.left-geom.ml;
+    S.t=Math.round(clamp(x/geom.iw*S.tmax,0,S.tmax));
+    renderLive();syncTime();
+  }
+  host.addEventListener('pointerdown',function(e){
+    dragging=true;S.playing=false;updatePlayBtn();
+    try{host.setPointerCapture(e.pointerId);}catch(err){}
+    setT(e);
+  });
+  host.addEventListener('pointermove',function(e){if(dragging)setT(e);});
+  ['pointerup','pointercancel'].forEach(function(n){host.addEventListener(n,function(){dragging=false;});});
+})();
+if(window.ResizeObserver){new ResizeObserver(function(){drawChart();}).observe($('#chart'));}
+else{window.addEventListener('resize',drawChart);}
+
+/* ---------- secțiuni ---------- */
+function showTab(name){
+  var sim=name!=='verificare';
+  $('#panel-simulator').hidden=!sim;
+  $('#panel-verificare').hidden=sim;
+  $('#tab-simulator').setAttribute('aria-selected',String(sim));
+  $('#tab-verificare').setAttribute('aria-selected',String(!sim));
+  if(sim)drawChart();
+}
+$('#tab-simulator').addEventListener('click',function(){showTab('simulator');try{location.hash='simulator';}catch(e){}});
+$('#tab-verificare').addEventListener('click',function(){showTab('verificare');try{location.hash='verificare';}catch(e){}});
+window.addEventListener('hashchange',function(){showTab(location.hash.replace('#',''));});
+
+/* ================= VERIFICARE ================= */
+var WS={d:0.05,rho:2700,c:900,T0:90,Tinf:25};
+var ref=(function(){
+  var r=WS.d/2,A=4*PI*r*r,V=4/3*PI*Math.pow(r,3),m=WS.rho*V;
+  var th0=WS.T0-WS.Tinf,th300=DATA_Y[10]-WS.Tinf,th600=DATA_Y[20]-WS.Tinf;
+  var k=-Math.log(th300/th0)/300,h=k*m*WS.c/A;
+  return {r:r,A:A,V:V,m:m,th0:th0,th300:th300,th600:th600,k:k,h:h,d1:DATA_Y[0]-DATA_Y[2],d2:DATA_Y[18]-DATA_Y[20]};
+})();
+
+var ROWS=[
+  {id:'A',type:'num',label:'Aria suprafeței A',unit:'m²',ph:'ex. 0,0078',ref:ref.A,tol:0.02,
+   hints:[{v:4*PI*WS.d*WS.d,msg:'Ai folosit diametrul în loc de rază. În A = 4πr² intră raza r = d/2.'},{v:ref.A*1e4,msg:'Pare exprimată în cm². Scrie aria în m².'}],
+   sol:function(){return 'A = 4πr² = 4·π·(0,025 m)² = '+sci(ref.A,3)+' m²';}},
+  {id:'V',type:'num',label:'Volumul V',unit:'m³',ph:'ex. 6,5e-5',ref:ref.V,tol:0.02,
+   hints:[{v:4/3*PI*Math.pow(WS.d,3),msg:'Ai folosit diametrul în loc de rază. În V = (4/3)πr³ intră raza r = d/2.'},{v:ref.V*1e6,msg:'Pare exprimat în cm³. Scrie volumul în m³.'}],
+   sol:function(){return 'V = (4/3)πr³ = (4/3)·π·(0,025 m)³ = '+sci(ref.V,3)+' m³';}},
+  {id:'m',type:'num',label:'Masa m',unit:'kg',ph:'ex. 0,177',ref:ref.m,tol:0.02,
+   hints:[{v:ref.m*1000,msg:'Pare exprimată în grame. Scrie masa în kg.'}],
+   sol:function(){return 'm = ρ·V = 2700 kg/m³ · '+sci(ref.V,3)+' m³ = '+fmt(ref.m,4)+' kg';}},
+  {id:'th0',type:'num',label:'θ la t = 0 s',unit:'K',ph:'ex. 65',ref:ref.th0,tol:0.005,abs:0.1,
+   hints:[{v:WS.T0,msg:'Ai scris Ts. θ este diferența Ts − T∞.'}],
+   sol:function(){return 'θ(0) = Ts,0 − T∞ = 90 − 25 = 65 K';}},
+  {id:'th300',type:'num',label:'θ la t = 300 s',unit:'K',ph:'ex. 24,4',ref:ref.th300,tol:0.005,abs:0.1,
+   hints:[{v:DATA_Y[10],msg:'Ai scris Ts. θ este diferența Ts − T∞.'}],
+   sol:function(){return 'θ(300) = 49,4 − 25 = 24,4 K';}},
+  {id:'th600',type:'num',label:'θ la t = 600 s',unit:'K',ph:'ex. 9,2',ref:ref.th600,tol:0.005,abs:0.1,
+   hints:[{v:DATA_Y[20],msg:'Ai scris Ts. θ este diferența Ts − T∞.'}],
+   sol:function(){return 'θ(600) = 34,2 − 25 = 9,2 K';}},
+  {id:'curve',type:'sel',label:'Cum arată curba Ts(t)?',
+   options:[
+     {t:'O dreaptă descrescătoare',ok:false,msg:'Viteza de răcire nu este constantă: scade odată cu θ. Vezi graficul dT/dt din simulator.'},
+     {t:'O exponențială descrescătoare care tinde spre T∞ = 25 °C',ok:true,msg:'Corect. Ts(t) = T∞ + (Ts,0 − T∞)·e^(−kt).'},
+     {t:'O exponențială descrescătoare care tinde spre 0 °C',ok:false,msg:'Corpul nu se poate răci sub temperatura aerului. Valoarea limită este T∞.'},
+     {t:'O parabolă',ok:false,msg:'Soluția ecuației dTs/dt = −k·θ este o exponențială, nu un polinom.'}],
+   sol:function(){return 'Ts(t) = T∞ + (Ts,0 − T∞)·e^(−kt): scade rapid la început și tinde asimptotic spre T∞.';}},
+  {id:'k',type:'num',label:'Constanta de răcire k la t = 300 s',unit:'s⁻¹',ph:'ex. 3,3e-3',ref:ref.k,tol:0.03,
+   hints:[
+     {v:-ref.k,msg:'k este pozitiv. Semnul minus din formulă compensează faptul că ln(θ/θ₀) este negativ.'},
+     {v:-Math.log(DATA_Y[10]/WS.T0)/300,msg:'Ai pus Ts în logaritm. Argumentul este raportul θ/θ₀, cu θ = Ts − T∞.'},
+     {v:-Math.log10(ref.th300/ref.th0)/300,msg:'Ai folosit log10. Formula cere logaritmul natural, ln.'},
+     {v:ref.k*60,msg:'Pare calculată cu t în minute. Folosește t în secunde.'}],
+   sol:function(){
+     return 'k = −(1/t)·ln[θ/θ₀] = −(1/300)·ln(24,4/65)<br>= −(1/300)·ln('+fmt(ref.th300/ref.th0,4)+') = −(1/300)·('+fmt(Math.log(ref.th300/ref.th0),4)+')<br>k = '+sci(ref.k,3)+' s⁻¹';}},
+  {id:'h',type:'num',label:'Coeficientul h = k·m·c / A',unit:'',ph:'ex. 66',ref:ref.h,tol:0.04,
+   hints:[
+     {v:ref.k*ref.m/ref.A,msg:'Ai omis căldura specifică c din produsul m·c.'},
+     {v:ref.k*WS.c/ref.A,msg:'Ai omis masa m din produsul m·c.'}],
+   sol:function(){return 'h = k·m·c/A = '+sci(ref.k,3)+' · '+fmt(ref.m,4)+' · 900 / '+sci(ref.A,3)+' = '+fmt(ref.h,1)+' W/(m²·K)';}},
+  {id:'hu',type:'sel',label:'Unitatea de măsură a lui h',
+   options:[
+     {t:'W/(m·K)',ok:false,msg:'Aceasta este unitatea conductivității termice λ, nu a lui h.'},
+     {t:'W/(m²·K)',ok:true,msg:'Corect. Din Q̇ = h·A·(Ts − T∞): [h] = W / (m² · K).'},
+     {t:'W/m²',ok:false,msg:'Lipsește împărțirea la diferența de temperatură, în K.'},
+     {t:'J/(kg·K)',ok:false,msg:'Aceasta este unitatea căldurii specifice c.'}],
+   sol:function(){return 'Q̇ = h·A·(Ts − T∞) ⇒ [h] = W / (m² · K)';}},
+  {id:'d1',type:'num',label:'Scăderea Ts în primele 60 s',unit:'K',ph:'ex. 11,9',ref:ref.d1,tol:0.02,abs:0.2,
+   hints:[{v:DATA_Y[0]-DATA_Y[1],msg:'Ai luat doar primele 30 s. Intervalul este de la 0 la 60 s.'}],
+   sol:function(){return 'ΔT = Ts(0) − Ts(60) = 90 − 78,1 = 11,9 K';}},
+  {id:'d2',type:'num',label:'Scăderea Ts în ultimele 60 s',unit:'K',ph:'ex. 2,0',ref:ref.d2,tol:0.02,abs:0.15,
+   hints:[{v:DATA_Y[19]-DATA_Y[20],msg:'Ai luat doar ultimele 30 s. Intervalul este de la 540 la 600 s.'}],
+   sol:function(){return 'ΔT = Ts(540) − Ts(600) = 36,2 − 34,2 = 2,0 K';}},
+  {id:'why',type:'sel',label:'De ce scăderea din ultimele 60 s este mai mică?',
+   options:[
+     {t:'Corpul pierde masă pe măsură ce se răcește',ok:false,msg:'Masa corpului rămâne constantă în model.'},
+     {t:'Diferența Ts − T∞ scade, deci scade și fluxul de căldură h·A·(Ts − T∞)',ok:true,msg:'Corect. Viteza de răcire este proporțională cu θ.'},
+     {t:'Coeficientul h scade în timp',ok:false,msg:'În model h este constant. Diferența vine din scăderea lui θ.'},
+     {t:'Aerul se încălzește treptat',ok:false,msg:'Modelul presupune T∞ constantă, iar experimentul o menține constantă.'}],
+   sol:function(){return 'Q̇ = h·A·θ. La început θ = 65 K, spre final θ ≈ 11 K (36,2 − 25), deci și fluxul și scăderea de temperatură sunt mult mai mici.';}}
+];
+var GROUPS=[
+  {n:1,t:'Aria, volumul și masa sferei',rows:['A','V','m']},
+  {n:2,t:'Diferența de temperatură θ = Ts − T∞',rows:['th0','th300','th600']},
+  {n:3,t:'Forma curbei Ts(t)',rows:['curve'],link:true,d:'Reprezintă grafic datele din fișă, apoi alege descrierea potrivită.'},
+  {n:4,t:'Constanta de răcire k',rows:['k'],d:'Date: t = 300 s, Ts = 49,4 °C, Ts,0 = 90 °C, T∞ = 25 °C.'},
+  {n:5,t:'Coeficientul de transfer termic h',rows:['h','hu']},
+  {n:6,t:'Primele 60 s față de ultimele 60 s',rows:['d1','d2','why'],d:'Folosește tabelul de date din fișă.'}
+];
+var state={};
+var byId={};ROWS.forEach(function(r){byId[r.id]=r;});
+
+function parseNum(raw){
+  var s=String(raw).trim();
+  if(!s)return null;
+  s=s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]/g,function(c){return SUPINV[c];});
+  s=s.replace(/[−–]/g,'-').replace(/\s+/g,'').replace(',','.');
+  s=s.replace(/[×·*x]10\^?\(?(-?\d+)\)?/i,'e$1');
+  if(!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s))return null;
+  return parseFloat(s);
+}
+function checkRow(row,raw){
+  if(row.type==='sel'){
+    if(raw==='')return null;
+    var o=row.options[+raw];
+    return {st:o.ok?'ok':'bad',msg:o.msg};
+  }
+  if(String(raw).trim()==='')return null;
+  var x=parseNum(raw);
+  if(x===null)return {st:'bad',msg:'Introdu un număr, de exemplu 0,0033 sau 3,3e-3.'};
+  var tol=Math.max(row.tol*Math.abs(row.ref),row.abs||0);
+  var err=Math.abs(x-row.ref);
+  if(err<=tol)return {st:'ok',msg:'Corect.'};
+  var hs=row.hints||[];
+  for(var i=0;i<hs.length;i++){
+    var h=hs[i];
+    if(Math.abs(x-h.v)<=Math.max(0.03*Math.abs(h.v),h.abs||0))return {st:'bad',msg:h.msg};
+  }
+  if(err<=Math.max(0.1*Math.abs(row.ref),(row.abs||0)*3))return {st:'near',msg:'Aproape. Verifică rotunjirile intermediare.'};
+  return {st:'bad',msg:'Nu coincide. Reia formula și verifică unitățile.'};
+}
+var STAT={ok:'✓ Corect',near:'≈ Aproape',bad:'✗ Mai verifică'};
+
+function buildVerify(){
+  var html='';
+  GROUPS.forEach(function(g){
+    html+='<div class="card"><div class="vg-h"><span class="vg-n">Sarcina '+g.n+'</span><h3 class="vg-t">'+g.t+'</h3></div>';
+    if(g.d)html+='<p class="vg-d">'+g.d+'</p>';
+    g.rows.forEach(function(id){
+      var r=byId[id];
+      var field;
+      if(r.type==='sel'){
+        field='<select id="in-'+id+'" data-id="'+id+'" aria-label="'+r.label+'"><option value="">— alege —</option>'+
+          r.options.map(function(o,i){return '<option value="'+i+'">'+o.t+'</option>';}).join('')+'</select>';
+      }else{
+        field='<span class="vin"><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" id="in-'+id+'" data-id="'+id+'" placeholder="'+r.ph+'" aria-label="'+r.label+'">'+(r.unit?'<span class="u">'+r.unit+'</span>':'')+'</span>';
+      }
+      html+='<div class="vrow'+(r.type==='sel'?' sel':'')+'" id="row-'+id+'">'+
+        '<label class="vname" for="in-'+id+'">'+r.label+'</label>'+
+        (r.type==='sel'?'':field)+
+        (r.type==='sel'?field:'')+
+        '<div class="vact"><span id="st-'+id+'"></span><span class="vmsg" id="msg-'+id+'" aria-live="polite"></span><button class="link" type="button" data-sol="'+id+'">Arată rezolvarea</button></div>'+
+        '<div class="vsol" id="sol-'+id+'" hidden></div></div>';
+    });
+    if(g.link)html+='<p style="margin-top:10px"><button class="link" type="button" id="goto-sim">Vezi curba în simulator</button></p>';
+    if(g.n===4)html+='<p style="margin-top:10px"><button class="link" type="button" id="goto-sim4">Setează simulatorul la t = 300 s</button></p>';
+    html+='</div>';
+  });
+  $('#v-groups').innerHTML=html;
+  $('#prog-t').textContent=ROWS.length;
+}
+function applyRow(id){
+  var r=byId[id],el=$('#in-'+id);
+  var res=checkRow(r,el.value);
+  var row=$('#row-'+id);
+  row.classList.remove('is-ok','is-near','is-bad');
+  if(!res){delete state[id];$('#st-'+id).innerHTML='';$('#msg-'+id).textContent='';updateProg();return;}
+  state[id]=res.st;
+  row.classList.add('is-'+res.st);
+  $('#st-'+id).innerHTML='<span class="pill '+res.st+'">'+STAT[res.st]+'</span>';
+  $('#msg-'+id).textContent=res.msg;
+  updateProg();
+}
+function updateProg(){
+  var n=0;ROWS.forEach(function(r){if(state[r.id]==='ok')n++;});
+  $('#prog-n').textContent=n;
+  $('#prog-fill').style.width=(n/ROWS.length*100)+'%';
+}
+function clearRow(id){
+  delete state[id];
+  var row=$('#row-'+id);row.classList.remove('is-ok','is-near','is-bad');
+  $('#st-'+id).innerHTML='';$('#msg-'+id).textContent='';
+}
+buildVerify();
+var vg=$('#v-groups');
+vg.addEventListener('change',function(e){var id=e.target.dataset&&e.target.dataset.id;if(id)applyRow(id);});
+vg.addEventListener('input',function(e){var id=e.target.dataset&&e.target.dataset.id;if(id&&e.target.tagName==='INPUT'){clearRow(id);updateProg();}});
+vg.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&e.target.tagName==='INPUT'){e.preventDefault();applyRow(e.target.dataset.id);}
+});
+vg.addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  if(b.dataset.sol){
+    var box=$('#sol-'+b.dataset.sol);
+    if(box.hidden){box.innerHTML=byId[b.dataset.sol].sol();box.hidden=false;b.textContent='Ascunde rezolvarea';}
+    else{box.hidden=true;b.textContent='Arată rezolvarea';}
+  }else if(b.id==='goto-sim'||b.id==='goto-sim4'){
+    S=defaults();S.t=300;renderAll();showTab('simulator');
+    try{location.hash='simulator';}catch(err){}
+  }
+});
+$('#v-all').addEventListener('click',function(){ROWS.forEach(function(r){applyRow(r.id);});});
+$('#v-clear').addEventListener('click',function(){
+  ROWS.forEach(function(r){var el=$('#in-'+r.id);el.value='';clearRow(r.id);var box=$('#sol-'+r.id);box.hidden=true;});
+  $$('button[data-sol]').forEach(function(b){b.textContent='Arată rezolvarea';});
+  updateProg();
+});
+
+/* ---------- pornire ---------- */
+renderAll();
+var h0=location.hash.replace('#','');
+if(h0==='verificare')showTab('verificare');
+})();
+</script>
+
+</body></html>
